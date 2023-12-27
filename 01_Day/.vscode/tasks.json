@@ -1,0 +1,38 @@
+{
+  "tasks": [
+    {
+      "type": "shell",
+      "label": "Task: make all",
+      "command": "make",
+      "args": [
+        "all",
+        "${workspaceFolder}/Makefile"
+      ],
+      "group": "build"
+    },
+    {
+      "type": "shell",
+      "label": "Task: make clean",
+      "command": "make",
+      "args": [
+        "clean",
+        "${workspaceFolder}/Makefile"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "Task: make clean & all",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Task: make clean",
+        "Task: make all"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ],
+  "version": "2.0.0"
+}
