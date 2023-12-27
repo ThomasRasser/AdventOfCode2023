@@ -56,11 +56,11 @@ static bool is_digit(const char *c);
 static bool is_symbol(const char *c);
 static bool has_adjacent_symbol(const number_t* number, 
                                 const char** matrix, 
-                                const uint16_t matrix_number_of_rows, 
-                                const uint16_t matrix_number_of_cols);
+                                const uint8_t matrix_number_of_rows, 
+                                const uint8_t matrix_number_of_cols);
 static bool position_is_in_bounds(const position_t* pos, 
-                                  const uint16_t max_x_pos, 
-                                  const uint16_t max_y_pos);
+                                  const uint8_t max_x_pos, 
+                                  const uint8_t max_y_pos);
                                   
 // Main
 // ################################################
@@ -78,7 +78,6 @@ int main (int argc, char* argv[]) {
 
     /*
     char* input_file_name = "input_small.txt";
-    char* input_file_name = "input_very_big.txt";
     */
     char* input_file_name = "input_big.txt";
     ssize_t result = decrypt_riddle_value(input_file_name);
@@ -138,8 +137,8 @@ static bool is_symbol(const char* c) {
 }
 
 static bool position_is_in_bounds(const position_t* pos, 
-                                  const uint16_t max_x_pos, 
-                                  const uint16_t max_y_pos) {
+                                  const uint8_t max_x_pos, 
+                                  const uint8_t max_y_pos) {
 
     if(pos == NULL) {
         return false;
@@ -158,8 +157,8 @@ static bool position_is_in_bounds(const position_t* pos,
 
 static bool has_adjacent_symbol(const number_t* number, 
                                 const char** matrix, 
-                                const uint16_t matrix_number_of_rows, 
-                                const uint16_t matrix_number_of_cols) {
+                                const uint8_t matrix_number_of_rows, 
+                                const uint8_t matrix_number_of_cols) {
 
     position_t pos_to_check = {0, 0};
 
@@ -232,12 +231,16 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
 
     // Read file line by line and create 2D array of its values
     number_t* numbers = NULL;
-    uint32_t numbers_cnt = 0;
+    uint16_t numbers_cnt = 0;
     cleanup.numbers_allocated = true;
 
     char** matrix = NULL;
-    uint16_t matrix_number_of_rows = 0;
+    uint8_t matrix_number_of_rows = 0;
     uint8_t matrix_number_of_cols = 0;
+    uint8_t matrix_allocated_number_of_rows = 0;
+    uint8_t allocation_growth = 32; // Number of additional rows to be allocated, if needed
+    uint8_t allocated_blocks[32];
+    uint8_t allocated_blocks_cnt = 0;
     cleanup.matrix_allocated = true;
 
     char* line = NULL;
@@ -258,15 +261,30 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
         }
 
         // Copy line into matrix
-        matrix = (char**)realloc(matrix, (matrix_number_of_rows+1) * sizeof(char*));
-        if(matrix == NULL) {
-            fprintf(stderr, "Error allocating memory for matrix row %d\n", matrix_number_of_rows);
-            goto cleanup;
-        }
-        matrix[matrix_number_of_rows] = (char*)malloc(read_bytes * sizeof(char));
-        if(matrix[matrix_number_of_rows] == NULL) {
-            fprintf(stderr, "Error allocating memory for matrix row %d\n", matrix_number_of_rows);
-            goto cleanup;
+        if(matrix_number_of_rows >= matrix_allocated_number_of_rows) {
+            // Reallocate the array of pointers
+            // temp matrix is used, so that if realloc fails, the original matrix is not lost and can be freed
+            char **temp_matrix = (char**)realloc(matrix, (matrix_number_of_rows + allocation_growth) * sizeof(char*));
+            if(temp_matrix == NULL) {
+                fprintf(stderr, "Error reallocating memory for matrix pointers\n");
+                goto cleanup;
+            }
+            matrix = temp_matrix;
+            matrix_allocated_number_of_rows += allocation_growth;
+
+            // Allocate new rows in a contiguous block
+            char *new_rows = (char*)malloc(allocation_growth * matrix_number_of_cols * sizeof(char));
+            if(new_rows == NULL) {
+                fprintf(stderr, "Error allocating memory for new rows\n");
+                goto cleanup;
+            }
+            allocated_blocks[allocated_blocks_cnt] = matrix_number_of_rows;
+            allocated_blocks_cnt++;
+
+            // Assign new row pointers to the appropriate locations in the new block
+            for(int i = 0; i < allocation_growth; ++i) {
+                matrix[matrix_number_of_rows+i] = new_rows + i*matrix_number_of_cols;
+            }
         }
         memcpy(matrix[matrix_number_of_rows], line, read_bytes);
         matrix_number_of_rows++;
@@ -277,7 +295,6 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
             if(is_digit(&line[i])) {
                 uint8_t current_number = (uint8_t)line[i] - '0';
                 if(!number_allocated) {
-                    //fprintf(stdout, "NC: %5d\n", numbers_cnt);
                     numbers = realloc(numbers, (numbers_cnt+1) * sizeof(number_t));
                     numbers[numbers_cnt].length = 1;
                     numbers[numbers_cnt].pos.x = i;
@@ -304,14 +321,15 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
         goto cleanup;
     }
 
-    DEBUG_START(1)
+    DEBUG_START(1) // #region DEBUG: Print results of parsing
     fprintf(stdout, "Parsed numbers: %d\n", numbers_cnt);
     fprintf(stdout, "Matrix number of rows: %d\n", matrix_number_of_rows);
     fprintf(stdout, "Matrix number of cols: %d\n", matrix_number_of_cols);
     fprintf(stdout, "\n");
-    DEBUG_END
+    DEBUG_END // #endregion
 
-    DEBUG_START(2)
+    DEBUG_START(2) // #region DEBUG: Print numbers and matrix
+
     // Print numbers list
     for(size_t i=0; i<numbers_cnt; i++) {
         fprintf(stdout, "%4ld. x: %3d, y: %3d, value: %3d, length: %d\n", 
@@ -326,19 +344,18 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
     }
     fprintf(stdout, "\n");
     fprintf(stdout, "\n");
-    DEBUG_END
+    DEBUG_END // #endregion
 
     // Find numbers with adjacent symbols (normal or diagonal)
-    uint64_t number_sum = 0;
+    ssize_t number_sum = 0;
     number_t* valid_numbers = NULL;
-    uint64_t valid_numbers_cnt = 0;
+    uint16_t valid_numbers_cnt = 0;
     number_t* invalid_numbers = NULL;
-    uint64_t invalid_numbers_cnt = 0;
+    uint16_t invalid_numbers_cnt = 0;
     cleanup.valid_numbers_allocated = true;
     cleanup.invalid_numbers_allocated = true;
     for(size_t i=0; i<numbers_cnt; i++) {
         if(has_adjacent_symbol(&numbers[i], (const char**)matrix, matrix_number_of_rows, matrix_number_of_cols)) {
-            // fprintf(stdout, "v::%4d | x:%4d | y:%6d\n", numbers[i].value, numbers[i].pos.x, numbers[i].pos.y);
             DEBUG_START(1)
             valid_numbers = realloc(valid_numbers, (valid_numbers_cnt+1) * sizeof(number_t));
             valid_numbers[valid_numbers_cnt] = numbers[i];
@@ -354,14 +371,15 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
         }
     }
 
-    DEBUG_START(1)
-    fprintf(stdout, "Valid numbers: %ld\n", valid_numbers_cnt);
-    fprintf(stdout, "Invalid numbers: %ld\n", invalid_numbers_cnt);
+    DEBUG_START(1) // #region DEBUG: Print results of parsing
+    fprintf(stdout, "Valid numbers: %d\n", valid_numbers_cnt);
+    fprintf(stdout, "Invalid numbers: %d\n", invalid_numbers_cnt);
     fprintf(stdout, "Number sum: %ld\n", number_sum);
     fprintf(stdout, "\n");
-    DEBUG_END
+    DEBUG_END // #endregion
 
-    DEBUG_START(2)
+    DEBUG_START(2) // #region DEBUG: Print valid and invalid numbers
+    
     // Print valid numbers list
     fprintf(stdout, "Valid numbers:\n");
     for(size_t i=0; i<valid_numbers_cnt; i++) {
@@ -377,7 +395,7 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
             i+1, invalid_numbers[i].pos.x, invalid_numbers[i].pos.y, invalid_numbers[i].value, invalid_numbers[i].length);
     }
     fprintf(stdout, "\n");
-    DEBUG_END
+    DEBUG_END // #endregion
 
     cleanup:
     if(cleanup.file_opened) {
@@ -388,9 +406,9 @@ static ssize_t decrypt_riddle_value(const char *file_name) {
     }
     if(cleanup.matrix_allocated) {
         if(matrix != NULL) {
-            for(int i = 0; i < matrix_number_of_rows; i++) {
-                if(matrix[i] != NULL) {
-                    free(matrix[i]);
+            for(int i = 0; i < allocated_blocks_cnt; ++i) {
+                if(matrix[allocated_blocks[i]] != NULL) {
+                    free(matrix[allocated_blocks[i]]);
                 }
             }
             free(matrix);

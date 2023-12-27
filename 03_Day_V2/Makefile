@@ -2,7 +2,7 @@
 # ------------------------------------------------------------
 CC = gcc
 DEFS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_SVID_SOURCE -D_POSIX_C_SOURCE=200809L
-CFLAGS = -Wall -Wconversion -g -std=c11 -pedantic $(DEFS) -I/usr/include/x86_64-linux-gnu
+CFLAGS = -Wall -g -std=c11 -pedantic $(DEFS) -I/usr/include/x86_64-linux-gnu
 LDFLAGS = -lcurl -lm -lrt
 OBJECTS = main.o
 
